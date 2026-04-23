@@ -17,7 +17,7 @@ try:
 except:
     st.error("데이터베이스 연결 설정(secrets.toml)을 확인해주세요.")
 
-# 2. 유니버설 키워드 사전 (동일 차원 내 공용)
+# 2. 키워드 사전 (동일 차원 내 공용)
 KEYWORDS = {
     "T": { 
         "C_scenario": "오늘 당장 사고 싶은 물건(아이패드, 운동화 등)을 위해 주식 매매를 결정하는 상황입니다.",
@@ -64,7 +64,19 @@ if not st.session_state.logged_in:
             active_class_res = supabase.table("construal_state").select("class_name").eq("current_state", "active").execute()
             if active_class_res.data:
                 active_class = active_class_res.data[0]['class_name']
-                st.session_state.update({"logged_in": True, "user_type": "student", "student_name": name, "class_name": active_class, "order": random.choice(['A', 'B'])})
+                
+                # 50:50 균등 배정 로직
+                current_logs = supabase.table("student_logs").select("id").eq("class_name", active_class).execute().data
+                current_count = len(current_logs)
+                assigned_order = 'A' if current_count % 2 == 0 else 'B'
+                
+                st.session_state.update({
+                    "logged_in": True, 
+                    "user_type": "student", 
+                    "student_name": name, 
+                    "class_name": active_class, 
+                    "order": assigned_order
+                })
                 supabase.table("student_logs").insert({"class_name": active_class, "student_name": name}).execute()
                 st.rerun()
             else:
@@ -186,7 +198,7 @@ elif st.session_state.user_type == "prof":
             else:
                 st.info("분석 결과: 상관관계는 존재하나 표본 수 부족으로 통계적 유의미성(p < 0.05)이 아직 확보되지 않았습니다.")
 
-        # 4) 순서 효과(Order Effect) 분석 - 교수 화면 마지막 추가
+        # 4) 순서 효과(Order Effect) 분석
         st.divider()
         st.subheader("순서 효과(Order Effect) 통계 검증")
         group_a = df[df['order_type'] == 'A']['score_abstract']
@@ -231,12 +243,17 @@ else:
             st.subheader(f"상황 {st.session_state.step + 1}")
             st.markdown(f"**{KEYWORDS[dim_key][f'{type_key}_scenario']}**\n\n👉 *아래 상황에 적절한 단어 3개를 고르세요.*")
             
-            all_list = KEYWORDS[dim_key]["abs"] + KEYWORDS[dim_key]["con"]
-            random.seed(st.session_state.step); random.shuffle(all_list)
+            # 학생별 세션 기반 단어 셔플
+            if f"word_list_{st.session_state.step}" not in st.session_state:
+                all_list = KEYWORDS[dim_key]["abs"] + KEYWORDS[dim_key]["con"]
+                random.shuffle(all_list)
+                st.session_state[f"word_list_{st.session_state.step}"] = all_list
+            
+            current_words = st.session_state[f"word_list_{st.session_state.step}"]
             
             selected = []
             cols = st.columns(4)
-            for i, w in enumerate(all_list):
+            for i, w in enumerate(current_words):
                 if cols[i%4].checkbox(w, key=f"{curr}_{w}"): selected.append(w)
                 
             if len(selected) == 3 and st.button("다음"):
