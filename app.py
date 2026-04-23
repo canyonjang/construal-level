@@ -17,7 +17,7 @@ try:
 except:
     st.error("데이터베이스 연결 설정(secrets.toml)을 확인해주세요.")
 
-# 2. 키워드 사전 (동일 차원 내 공용)
+# 2. 유니버설 키워드 사전 (동일 차원 내 공용)
 KEYWORDS = {
     "T": { 
         "C_scenario": "오늘 당장 사고 싶은 물건(아이패드, 운동화 등)을 위해 주식 매매를 결정하는 상황입니다.",
@@ -122,9 +122,8 @@ elif st.session_state.user_type == "prof":
             words_d = [w for l in df[df['module_type'].str.contains('_D')]['selected_keywords'] for w in l]
             if words_d: st.image(WordCloud(font_path=font_path, background_color="white", width=400).generate(" ".join(words_d)).to_array())
 
-        # 2) 차원별 비교 막대그래프 (축과 범례만 영어)
+        # 2) 차원별 비교 막대그래프 (색인 및 범례 영어 유지)
         st.subheader("4대 심리적 차원별 해석 수준(추상성) 비교")
-        st.write("그래프 내부의 텍스트 깨짐 방지를 위해 색인만 영어로 표시합니다.")
         
         dim_map = {'T': 'Temporal', 'S': 'Social', 'L': 'Spatial', 'H': 'Hypothetical'}
         df_chart = df.copy()
@@ -166,7 +165,7 @@ elif st.session_state.user_type == "prof":
         ax_bar.spines['right'].set_visible(False)
         st.pyplot(fig_bar)
 
-        # 3) 자기 우월평가 및 상관관계 분석 (한글 복구 및 상세 분석)
+        # 3) 자기 우월평가 분석 및 상관관계
         st.divider()
         st.subheader("자기 우월평가(Overplacement) 분석")
         avg_op = df[['overplacement_1', 'overplacement_2', 'overplacement_3']].mean().mean()
@@ -174,9 +173,7 @@ elif st.session_state.user_type == "prof":
         
         st.write("---")
         st.subheader("사회적 거리와 자기 우월평가의 상관관계")
-        # 사회적 거리 원거리(S_D) 상황의 데이터만 추출
         social_df = df[df['module_type'] == 'S_D'].copy()
-        # 해당 학생의 3개 우월평가 문항 평균 계산
         social_df['op_avg'] = social_df[['overplacement_1', 'overplacement_2', 'overplacement_3']].mean(axis=1)
         
         if len(social_df) > 2:
@@ -184,15 +181,29 @@ elif st.session_state.user_type == "prof":
             st.write(f"**통계 분석 결과:**")
             st.write(f"- 상관계수 (Pearson r): **{corr:.4f}**")
             st.write(f"- 유의확률 (p-value): **{p_val:.4f}**")
-            
             if p_val < 0.05:
-                st.success("분석 결과: 사회적 거리가 먼 타인을 추상적으로 인식할수록 자신을 더 우월하게 평가하는 경향이 통계적으로 유의미하게 나타났습니다.")
+                st.success("분석 결과: 타인을 추상적으로 인식할수록 자신을 우월하게 평가하는 경향이 통계적으로 유의미하게 나타났습니다.")
             else:
-                st.info("분석 결과: 상관관계는 존재하나 현재 표본 수에서는 통계적 유의미성(p < 0.05)이 부족합니다.")
+                st.info("분석 결과: 상관관계는 존재하나 표본 수 부족으로 통계적 유의미성(p < 0.05)이 아직 확보되지 않았습니다.")
+
+        # 4) 순서 효과(Order Effect) 분석 - 교수 화면 마지막 추가
+        st.divider()
+        st.subheader("순서 효과(Order Effect) 통계 검증")
+        group_a = df[df['order_type'] == 'A']['score_abstract']
+        group_b = df[df['order_type'] == 'B']['score_abstract']
+        
+        if len(group_a) > 2 and len(group_b) > 2:
+            t_stat, p_val_order = stats.ttest_ind(group_a, group_b, equal_var=False)
+            st.write(f"- 그룹 A(근거리 우선) 추상성 평균: **{group_a.mean():.2f}**")
+            st.write(f"- 그룹 B(원거리 우선) 추상성 평균: **{group_b.mean():.2f}**")
+            st.write(f"- **t-통계량:** {t_stat:.4f}, **유의확률 (p-value):** {p_val_order:.4f}")
             
-            st.caption("※ 해설: 상관계수가 양수(+)일 때, 타인을 추상적인 '평균'으로 해석하는 학생일수록 자신의 능력을 높게 평가(자기과신)함을 의미합니다.")
+            if p_val_order > 0.05:
+                st.success("검증 결과: p-value가 0.05보다 크므로 제시 순서에 따른 유의미한 차이가 없습니다. 실험 설계가 안정적입니다.")
+            else:
+                st.warning("검증 결과: p-value가 0.05 이하이므로 제시 순서에 따른 차이(순서 효과)가 존재할 가능성이 있습니다.")
         else:
-            st.write("데이터가 충분히 수집되면 상관관계 분석 결과가 표시됩니다.")
+            st.write("각 그룹(A, B)의 데이터가 충분히 수집되면 순서 효과 검증 결과가 표시됩니다.")
 
 # 6. 학생 화면
 else:
