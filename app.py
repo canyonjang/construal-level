@@ -7,18 +7,17 @@ import matplotlib.pyplot as plt
 import random
 from scipy import stats
 
-# 1. 초기 설정
-st.set_page_config(page_title="의사결정 스타일 연구", layout="wide")
+# 1. 초기 설정 및 DB 연결
+st.set_page_config(page_title="해석수준이론과 자기과신", layout="wide")
 
-# Supabase 연결
 try:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     supabase = create_client(url, key)
-except Exception as e:
-    st.error("데이터베이스 연결 설정이 필요합니다.")
+except:
+    st.error("데이터베이스 연결 설정을 확인해주세요.")
 
-# 2. 유니버설 키워드 사전 (동일 차원 내 공용)
+# 2. 유니버설 키워드 사전 (방법 A: 동일 차원 내 공용)
 KEYWORDS = {
     "T": { 
         "C_scenario": "오늘 당장 사고 싶은 물건(아이패드, 운동화 등)을 위해 주식 매매를 결정하는 상황입니다.",
@@ -39,7 +38,7 @@ KEYWORDS = {
         "con": ["뉴스검색", "재무제표", "거래비용", "실시간시세", "주가흐름", "투자정보", "수익률추이", "모바일앱"]
     },
     "H": { 
-        "C_scenario": "토스나 카카오뱅크 파킹통장에 넣어두고 매일 확실한 이자를 받는 상황입니다.",
+        "C_scenario": "토스나 카카오뱅크 파킹통장에 넣어두고 매일 확실한 이자가 받는 상황입니다.",
         "D_scenario": "성공하면 대박이지만 휴지조각이 될 확률이 99%인 유행하는 밈코인에 투자하는 상황입니다.",
         "abs": ["일확천금", "인생역전", "기회", "희망", "짜릿함", "승부수", "가능성", "자유"],
         "con": ["예금금리", "비상금", "자동이체", "이자문자", "가입금액", "해지버튼", "보안카드", "입출금내역"]
@@ -50,114 +49,112 @@ KEYWORDS = {
 if "logged_in" not in st.session_state:
     st.session_state.update({"logged_in": False, "user_type": None, "class_name": None, "step": 0, "results": []})
 
-# 4. 로그인 및 수업 선택
+# 4. 로그인 화면
 if not st.session_state.logged_in:
-    st.title("의사결정 스타일 및 심리 선호도 조사")
-    user_type = st.radio("로그인 유형", ["학생", "교수"])
+    st.title("해석수준이론과 자기과신")
+    user_type = st.radio("로그인", ["학생", "교수"])
     if user_type == "교수":
         pw = st.text_input("비밀번호", type="password")
-        if pw == "3383" and st.button("교수 로그인"):
+        if pw == "3383" and st.button("로그인"):
             st.session_state.update({"logged_in": True, "user_type": "prof"})
             st.rerun()
     else:
-        name = st.text_input("성함")
-        cls = st.selectbox("참여 중인 수업", ["인하대 행동재무학", "숙대 1", "숙대 2"])
-        if name and st.button("실험 참여"):
-            st.session_state.update({
-                "logged_in": True, "user_type": "student", "student_name": name, 
-                "class_name": cls, "order": random.choice(['A', 'B']) # 순서 효과 방지
-            })
-            st.rerun()
+        name = st.text_input("이름")
+        if name and st.button("참여하기"):
+            active_class_res = supabase.table("construal_state").select("class_name").eq("current_state", "active").execute()
+            if active_class_res.data:
+                active_class = active_class_res.data[0]['class_name']
+                st.session_state.update({"logged_in": True, "user_type": "student", "student_name": name, "class_name": active_class, "order": random.choice(['A', 'B'])})
+                supabase.table("student_logs").insert({"class_name": active_class, "student_name": name}).execute()
+                st.rerun()
+            else:
+                st.warning("현재 진행 중인 수업이 없습니다. 교수님의 시작 신호를 기다려 주세요.")
 
-# 5. 교수 화면 (Admin)
+# 5. 교수 화면
 elif st.session_state.user_type == "prof":
-    st.sidebar.title("👨‍🏫 관리자 패널")
+    st.sidebar.title("관리자 패널")
     target_cls = st.sidebar.selectbox("수업 선택", ["인하대 행동재무학", "숙대 1", "숙대 2"])
     
     c1, c2, c3, c4 = st.columns(4)
-    if c1.button("1. 대기 모드"): supabase.table("construal_state").update({"current_state": "standby"}).eq("class_name", target_cls).execute()
-    if c2.button("2. 실험 시작"): supabase.table("construal_state").update({"current_state": "active"}).eq("class_name", target_cls).execute()
-    if c3.button("3. 결과 확인"): supabase.table("construal_state").update({"current_state": "result"}).eq("class_name", target_cls).execute()
-    if c4.button("데이터 새로고침"): st.rerun()
+    if c1.button("실험 대기"): supabase.table("construal_state").update({"current_state": "standby"}).eq("class_name", target_cls).execute()
+    if c2.button("실험 시작"): supabase.table("construal_state").update({"current_state": "active"}).eq("class_name", target_cls).execute()
+    if c3.button("결과 확인"): supabase.table("construal_state").update({"current_state": "result"}).eq("class_name", target_cls).execute()
+    
+    if c4.button("데이터 새로고침"):
+        login_count = len(supabase.table("student_logs").select("student_name", count="exact").eq("class_name", target_cls).execute().data)
+        res_data = supabase.table("construal_result").select("student_name").eq("class_name", target_cls).execute().data
+        df_res = pd.DataFrame(res_data)
+        complete_count = len(df_res['student_name'].unique()) if not df_res.empty else 0
+        st.sidebar.metric("로그인한 학생 수", f"{login_count}명")
+        st.sidebar.metric("응답 완료 학생 수", f"{complete_count}명")
+        st.sidebar.write(f"현재 제출된 총 응답 건수: {len(df_res)}건")
 
     data = supabase.table("construal_result").select("*").eq("class_name", target_cls).execute()
     df = pd.DataFrame(data.data)
 
-    if not df.empty and len(df) > 0:
-        st.divider()
-        st.header(f"📊 {target_cls} 실험 결과 분석 리포트")
-        st.write(f"현재 제출된 총 응답 수: {len(df)}건")
-        
-        # 1) 워드클라우드 (근거리 vs 원거리 비교)
-        st.subheader("심리적 거리별 키워드 비교 (Word Cloud)")
+    if not df.empty:
+        # 1) 워드클라우드
+        st.subheader("심리적 거리별 키워드 비교")
         wc_col1, wc_col2 = st.columns(2)
-        
-        words_c = [w for l in df[df['module_type'].str.contains('_C')]['selected_keywords'] for w in l]
-        words_d = [w for l in df[df['module_type'].str.contains('_D')]['selected_keywords'] for w in l]
-        
         font_path = 'NanumGothic.ttf'
-        
         with wc_col1:
             st.write("📍 **근거리 상황 (Close)**")
-            if words_c:
-                try:
-                    wc_c = WordCloud(font_path=font_path, background_color="white", width=400, height=300).generate(" ".join(words_c))
-                    st.image(wc_c.to_array())
-                except:
-                    st.write("(폰트 파일을 찾을 수 없습니다.)")
+            words_c = [w for l in df[df['module_type'].str.contains('_C')]['selected_keywords'] for w in l]
+            if words_c: st.image(WordCloud(font_path=font_path, background_color="white", width=400).generate(" ".join(words_c)).to_array())
         with wc_col2:
             st.write("🌐 **원거리 상황 (Distant)**")
-            if words_d:
-                try:
-                    wc_d = WordCloud(font_path=font_path, background_color="white", width=400, height=300).generate(" ".join(words_d))
-                    st.image(wc_d.to_array())
-                except:
-                    st.write("(폰트 파일을 찾을 수 없습니다.)")
+            words_d = [w for l in df[df['module_type'].str.contains('_D')]['selected_keywords'] for w in l]
+            if words_d: st.image(WordCloud(font_path=font_path, background_color="white", width=400).generate(" ".join(words_d)).to_array())
 
-        # 2) 마인드 맵 좌표
-        st.subheader("해석 수준 마인드 맵 (Construal Level Map)")
-        st.write("각 점은 특정 상황에서 선택한 3개 단어의 조합입니다. Y축은 상위 수준 단어의 개수입니다.")
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.scatter(df['score_concrete'], df['score_abstract'], alpha=0.3, color='blue')
-        ax.set_xlabel("Concrete Score (하위 수준)"); ax.set_ylabel("Abstract Score (상위 수준)")
-        ax.set_xticks([0, 1, 2, 3]); ax.set_yticks([0, 1, 2, 3])
+        # 2) 차원별 비교 막대그래프
+        st.subheader("4대 심리적 차원별 해석 수준(추상성) 비교")
+        dim_map = {'T': '시간적 거리', 'S': '사회적 거리', 'L': '공간적 거리', 'H': '확률적 거리'}
+        df_chart = df.copy()
+        df_chart['Dimension'] = df_chart['module_type'].apply(lambda x: dim_map.get(x.split('_')[0], x))
+        df_chart['Distance'] = df_chart['module_type'].apply(lambda x: '근거리(Close)' if '_C' in x else '원거리(Distant)')
+        avg_scores = df_chart.groupby(['Dimension', 'Distance'])['score_abstract'].mean().unstack()
+        
+        fig_bar, ax_bar = plt.subplots(figsize=(10, 5))
+        x = np.arange(len(avg_scores.index))
+        width = 0.35
+        if '근거리(Close)' in avg_scores.columns:
+            ax_bar.bar(x - width/2, avg_scores['근거리(Close)'], width, label='근거리 (구체적 상황)', color='royalblue', alpha=0.8)
+        if '원거리(Distant)' in avg_scores.columns:
+            ax_bar.bar(x + width/2, avg_scores['원거리(Distant)'], width, label='원거리 (추상적 상황)', color='crimson', alpha=0.8)
+        ax_bar.set_xticks(x); ax_bar.set_xticklabels(avg_scores.index); ax_bar.set_ylim(0, 3.5); ax_bar.legend()
+        st.pyplot(fig_bar)
+
+        # 3) 마인드 맵 좌표
+        st.subheader("해석 수준 마인드 맵 (구체성 vs 추상성)")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        colors = np.where(df['module_type'].str.contains('_C'), 'blue', 'red')
+        ax.scatter(df['score_concrete'], df['score_abstract'], c=colors, alpha=0.4)
+        ax.set_xlabel("Concrete Score (구체성)"); ax.set_ylabel("Abstract Score (추상성)")
         st.pyplot(fig)
+        st.write("**분석:** 파란색 점(근거리)은 우하단에, 빨간색 점(원거리)은 좌상단에 위치하는 **대각선 흐름**이 나타납니다.")
 
-        # 3) 자기 우월평가
+        # 4) 자기 우월평가 및 사회적 거리 상관관계
         st.subheader("자기 우월평가(Overplacement) 분석")
         avg_op = df[['overplacement_1', 'overplacement_2', 'overplacement_3']].mean().mean()
-        st.metric("집단 평균 자기 능력 백분위", f"{avg_op:.1f}%", delta=f"{avg_op-50:.1f}% (50% 기준)")
-        st.info(f"**분석:** 응답 평균이 {avg_op:.1f}%로 나타난 것은 대다수 학생이 자신을 '평균 이상'으로 믿는 편향을 보여줍니다. 이는 **사회적 거리**가 먼 '일반인'을 비교 대상으로 두었을 때, 타인을 추상적이고 평범하게 인식하여 상대적으로 자신을 우월하게 평가하는 현상입니다.")
-
-        # 4) 순서 효과 검증
-        st.subheader("순서 효과(Order Effect) 통계 검증")
-        group_a = df[df['order_type'] == 'A']['score_abstract']
-        group_b = df[df['order_type'] == 'B']['score_abstract']
+        st.metric("집단 평균 자기 능력 백분위", f"{avg_op:.1f}%", delta=f"{avg_op-50:.1f}%")
         
-        if len(group_a) > 0 and len(group_b) > 0:
-            t_stat, p_val = stats.ttest_ind(group_a, group_b, equal_var=False)
-            st.write(f"- 그룹 A(근거리 우선) 추상성 평균: {group_a.mean():.2f}")
-            st.write(f"- 그룹 B(원거리 우선) 추상성 평균: {group_b.mean():.2f}")
-            st.write(f"- **t-통계량:** {t_stat:.4f}, **p-value:** {p_val:.4f}")
-            
-            if p_val > 0.05:
-                st.success("검증 결과: p-value가 0.05보다 크므로 순서에 따른 유의미한 차이가 없습니다. 실험 설계가 안정적입니다.")
-            else:
-                st.warning("검증 결과: p-value가 0.05 이하이므로 순서 효과가 존재할 가능성이 있습니다.")
+        social_df = df[df['module_type'] == 'S_D'].copy()
+        social_df['op_avg'] = social_df[['overplacement_1', 'overplacement_2', 'overplacement_3']].mean(axis=1)
+        if len(social_df) > 2:
+            corr, p_val = stats.pearsonr(social_df['score_abstract'], social_df['op_avg'])
+            st.write(f"- 사회적 거리(타인)에 대한 추상성 점수와 자기 우월평가 점수 간 상관계수: **{corr:.4f}** (p={p_val:.4f})")
+            st.info("사회적 거리가 먼 타인을 추상적으로 인식할수록 자신을 더 우월하게 평가하는 경향이 강해집니다.")
 
-# 6. 학생 화면 (Student)
+# 6. 학생 화면
 else:
     state = supabase.table("construal_state").select("*").eq("class_name", st.session_state.class_name).execute().data[0]
-    
+    st.title(st.session_state.class_name)
     if state['current_state'] == "standby":
-        st.info("실험 준비 중입니다. 교수님의 안내를 기다려 주세요.")
+        st.info("교수님의 시작 신호를 기다리고 있습니다...")
         if st.button("화면 새로고침"): st.rerun()
-    
     elif state['current_state'] == "active":
-        # 상단 진행 바
-        st.progress(st.session_state.step / 8)
-        st.write(f"**진행 단계: {st.session_state.step}/8**")
-
+        st.progress(st.session_state.step / 9)
+        st.write(f"**진행 단계: {st.session_state.step}/9**")
         dims = ["T", "S", "L", "H"]
         flat_steps = []
         for d in dims:
@@ -169,50 +166,24 @@ else:
             curr = flat_steps[st.session_state.step]
             dim_key, type_key = curr.split('_')
             st.subheader(f"상황 {st.session_state.step + 1}")
-            st.info(KEYWORDS[dim_key][f"{type_key}_scenario"])
-            
-            words = KEYWORDS[dim_key]["abs"] + KEYWORDS[dim_key]["con"]
-            random.seed(st.session_state.step); random.shuffle(words)
-
-            if f"sel_{curr}" not in st.session_state: st.session_state[f"sel_{curr}"] = []
-            
+            st.markdown(f"**{KEYWORDS[dim_key][f'{type_key}_scenario']}**\n\n👉 *아래 상황에 적절한 단어 3개를 고르세요.*")
+            all_list = KEYWORDS[dim_key]["abs"] + KEYWORDS[dim_key]["con"]
+            random.seed(st.session_state.step); random.shuffle(all_list)
+            selected = []
             cols = st.columns(4)
-            for i, w in enumerate(words):
-                if cols[i%4].checkbox(w, key=f"chk_{curr}_{w}"):
-                    if w not in st.session_state[f"sel_{curr}"]: st.session_state[f"sel_{curr}"].append(w)
-                else:
-                    if w in st.session_state[f"sel_{curr}"]: st.session_state[f"sel_{curr}"].remove(w)
-            
-            if len(st.session_state[f"sel_{curr}"]) == 3:
-                if st.button("다음으로"):
-                    sel = st.session_state[f"sel_{curr}"]
-                    s_abs = len([x for x in sel if x in KEYWORDS[dim_key]["abs"]])
-                    s_con = len([x for x in sel if x in KEYWORDS[dim_key]["con"]])
-                    st.session_state.results.append({
-                        "type": curr, "words": sel, "abs": s_abs, "con": s_con, "order": st.session_state.order
-                    })
-                    st.session_state.step += 1
-                    st.rerun()
-            elif len(st.session_state[f"sel_{curr}"]) > 3:
-                st.warning("단어는 3개까지만 선택할 수 있습니다.")
-
-        elif st.session_state.step == 8:
-            st.subheader("마지막 설문")
-            st.write("다른 사람들과 비교했을 때 나의 능력은 상위 몇 %입니까? (0: 최하위, 100: 최상위)")
-            op1 = st.slider("1. 투자자로서의 나의 능력", 0, 100, 50)
-            op2 = st.slider("2. 투자 시장의 흐름을 판단하는 능력", 0, 100, 50)
-            op3 = st.slider("3. 투자 정보 중 가치 있는 정보를 골라내는 능력", 0, 100, 50)
-            
-            if st.button("최종 제출"):
-                for r in st.session_state.results:
-                    supabase.table("construal_result").insert({
-                        "class_name": st.session_state.class_name, "student_name": st.session_state.student_name,
-                        "order_type": r["order"], "module_type": r["type"], "selected_keywords": r["words"],
-                        "score_abstract": r["abs"], "score_concrete": r["con"],
-                        "overplacement_1": op1, "overplacement_2": op2, "overplacement_3": op3
-                    }).execute()
-                st.success("응답이 성공적으로 제출되었습니다. 감사합니다.")
+            for i, w in enumerate(all_list):
+                if cols[i%4].checkbox(w, key=f"{curr}_{w}"): selected.append(w)
+            if len(selected) == 3 and st.button("다음"):
+                st.session_state.results.append({"type": curr, "abs": len([x for x in selected if x in KEYWORDS[dim_key]["abs"]]), "con": len([x for x in selected if x in KEYWORDS[dim_key]["con"]]), "words": selected})
                 st.session_state.step += 1
-    
-    else:
-        st.success("모든 실험 과정이 끝났습니다. 교수님의 화면을 주목해주세요.")
+                st.rerun()
+        elif st.session_state.step == 8:
+            st.write("다른 사람들과 비교했을 때 나의 투자 능력은 상위 몇 %입니까? (0: 최하위, 100: 최상위)")
+            op1 = st.slider("1. 투자자로서의 나의 능력", 0, 100, 50)
+            op2 = st.slider("2. 투자 시장 흐름 판단 능력", 0, 100, 50)
+            op3 = st.slider("3. 가치 있는 정보 선별 능력", 0, 100, 50)
+            if st.button("제출 완료"):
+                for r in st.session_state.results:
+                    supabase.table("construal_result").insert({"class_name": st.session_state.class_name, "student_name": st.session_state.student_name, "order_type": st.session_state.order, "module_type": r["type"], "selected_keywords": r["words"], "score_abstract": r["abs"], "score_concrete": r["con"], "overplacement_1": op1, "overplacement_2": op2, "overplacement_3": op3}).execute()
+                st.success("참여해 주셔서 감사합니다!"); st.session_state.step += 1
+    else: st.success("실험이 종료되었습니다.")
