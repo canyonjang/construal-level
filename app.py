@@ -61,9 +61,12 @@ if not st.session_state.logged_in:
     else:
         name = st.text_input("별명")
         if name and st.button("참여하기"):
-            active_class_res = supabase.table("construal_state").select("class_name").eq("current_state", "active").execute()
-            if active_class_res.data:
-                active_class = active_class_res.data[0]['class_name']
+            # 안전한 조회를 위해 DB에서 전체 상태를 가져와 대기(standby) 중이거나 진행(active) 중인 수업을 찾음
+            all_states = supabase.table("construal_state").select("*").execute()
+            available_classes = [r['class_name'] for r in all_states.data if r['current_state'] in ['standby', 'active']]
+            
+            if available_classes:
+                active_class = available_classes[0]
                 
                 # 50:50 균등 배정 로직
                 current_logs = supabase.table("student_logs").select("id").eq("class_name", active_class).execute().data
@@ -80,25 +83,29 @@ if not st.session_state.logged_in:
                 supabase.table("student_logs").insert({"class_name": active_class, "student_name": name}).execute()
                 st.rerun()
             else:
-                st.warning("현재 진행 중인 수업이 없습니다. 교수님의 시작 신호를 기다려 주세요.")
+                st.warning("현재 열려 있는 수업이 없습니다. 교수님이 수업을 열 때까지 기다려 주세요.")
 
 # 5. 교수 화면 (Admin Panel)
 elif st.session_state.user_type == "prof":
     st.sidebar.title("관리자 패널")
     target_cls = st.sidebar.selectbox("수업 선택", ["인하대 행동재무학", "숙대 1", "숙대 2"])
     
-    c1, c2, c3, c4 = st.columns(4)
-    if c1.button("실험 시작"): 
+    # 5개의 버튼으로 분할하여 대기 버튼 추가
+    c1, c2, c3, c4, c5 = st.columns(5)
+    if c1.button("실험 대기"): 
+        supabase.table("construal_state").update({"current_state": "standby"}).eq("class_name", target_cls).execute()
+    if c2.button("실험 시작"): 
         supabase.table("construal_state").update({"current_state": "active"}).eq("class_name", target_cls).execute()
-    if c2.button("결과 확인"): 
+    if c3.button("결과 확인"): 
         supabase.table("construal_state").update({"current_state": "result"}).eq("class_name", target_cls).execute()
-    if c3.button("데이터 새로고침"): 
+    if c4.button("데이터 새로고침"): 
         st.rerun()
-    if c4.button("데이터 초기화"):
+    if c5.button("데이터 초기화"):
+        # 해당 수업(target_cls)의 데이터만 정확히 삭제
         supabase.table("construal_result").delete().eq("class_name", target_cls).execute()
         supabase.table("student_logs").delete().eq("class_name", target_cls).execute()
         supabase.table("construal_state").update({"current_state": "standby"}).eq("class_name", target_cls).execute()
-        st.success(f"'{target_cls}'의 모든 데이터가 초기화되었습니다.")
+        st.success(f"해당 수업('{target_cls}')의 데이터만 초기화되었습니다.")
         st.rerun()
 
     login_count = len(supabase.table("student_logs").select("student_name", count="exact").eq("class_name", target_cls).execute().data)
@@ -225,7 +232,7 @@ elif st.session_state.user_type == "prof":
             else:
                 st.info("분석 결과: 사회적 거리의 추상성 점수가 높을수록 자기 우월평가 점수가 높게 나타나는 경향성이 있으나, 아직 통계적 유의성(p < 0.05)이 확보되지 않았습니다.")
             
-            st.caption("※ 해설: 타인을 구체적인 개인이 아닌 '추상적인 평균'으로 인식(추상성 점 증가)할수록, 자신을 타인보다 더 특별하고 우월하게 평가하는 편향(Overplacement)이 짙어짐을 의미합니다.")
+            st.caption("※ 해설: 타인을 구체적인 개인이 아닌 '추상적인 평균'으로 인식(추상성 점수 증가)할수록, 자신을 타인보다 더 특별하고 우월하게 평가하는 편향(Overplacement)이 짙어짐을 의미합니다.")
         
         # 개인별 상관관계 산점도 (한글 폰트 적용)
         st.subheader("개인별 상관관계 산점도")
@@ -256,7 +263,7 @@ else:
     st.title(st.session_state.class_name)
     
     if state['current_state'] == "standby":
-        st.info("교수님의 시작 신호를 기다리고 있습니다...")
+        st.info("교수님이 시작하실 때까지 대기하세요.")
         if st.button("화면 새로고침"): st.rerun()
         
     elif state['current_state'] == "active":
