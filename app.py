@@ -225,16 +225,19 @@ elif st.session_state.user_type == "prof":
             else:
                 st.info("분석 결과: 사회적 거리의 추상성 점수가 높을수록 자기 우월평가 점수가 높게 나타나는 경향성이 있으나, 아직 통계적 유의성(p < 0.05)이 확보되지 않았습니다.")
             
-            st.caption("※ 해설: 타인을 구체적인 개인이 아닌 '추상적인 평균'으로 인식(추상성 점수 증가)할수록, 자신을 타인보다 더 특별하고 우월하게 평가하는 편향(Overplacement)이 짙어짐을 의미합니다.")
+            st.caption("※ 해설: 타인을 구체적인 개인이 아닌 '추상적인 평균'으로 인식(추상성 점 증가)할수록, 자신을 타인보다 더 특별하고 우월하게 평가하는 편향(Overplacement)이 짙어짐을 의미합니다.")
         
-        # 개인별 상관관계 산점도
+        # 개인별 상관관계 산점도 (한글 폰트 적용)
         st.subheader("개인별 상관관계 산점도")
         if not social_df.empty:
+            import matplotlib.font_manager as fm
+            font_prop = fm.FontProperties(fname='NanumGothic.ttf')
+            
             fig_scatter, ax_scatter = plt.subplots(figsize=(8, 5))
             ax_scatter.scatter(social_df['score_abstract'], social_df['op_avg'], color='purple', alpha=0.6)
             
             for i, row in social_df.iterrows():
-                ax_scatter.text(row['score_abstract'], row['op_avg'] + 1.5, row['student_name'], fontsize=9, ha='center', va='bottom')
+                ax_scatter.text(row['score_abstract'], row['op_avg'] + 1.5, row['student_name'], fontsize=9, ha='center', va='bottom', fontproperties=font_prop)
                 
             ax_scatter.set_xlabel("Abstractness Score (S_D)")
             ax_scatter.set_ylabel("Overplacement Average Score")
@@ -263,7 +266,7 @@ else:
             
             # 8단계(마지막 설문) 이전까지만 안내 문구 노출
             if st.session_state.step < 8:
-                st.info("💡 **각 상황을 충분히 몰입해서 읽고, 당신의 머릿속에 가장 비중 있게 떠오르는 단어 3개를 선택하세요.**")
+                st.info("💡 **아래 상황을 충분히 몰입해서 읽고, 당신의 머릿속에 가장 비중 있게 떠오르는 단어 3개를 선택하세요.**")
         
         dims = ["T", "S", "L", "H"]
         flat_steps = []
