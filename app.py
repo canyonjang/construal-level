@@ -101,7 +101,6 @@ elif st.session_state.user_type == "prof":
         st.success(f"'{target_cls}'의 모든 데이터가 초기화되었습니다.")
         st.rerun()
 
-    # 현황 집계
     login_count = len(supabase.table("student_logs").select("student_name", count="exact").eq("class_name", target_cls).execute().data)
     res_data_count = supabase.table("construal_result").select("student_name").eq("class_name", target_cls).execute().data
     df_count = pd.DataFrame(res_data_count)
@@ -111,7 +110,6 @@ elif st.session_state.user_type == "prof":
     st.sidebar.metric("응답 완료 학생 수", f"{complete_count}명")
     st.sidebar.write(f"현재 제출된 총 응답 건수: {len(df_count)}건")
 
-    # 결과 데이터 로드
     data = supabase.table("construal_result").select("*").eq("class_name", target_cls).execute()
     df = pd.DataFrame(data.data)
 
@@ -134,7 +132,7 @@ elif st.session_state.user_type == "prof":
             words_d = [w for l in df[df['module_type'].str.contains('_D')]['selected_keywords'] for w in l]
             if words_d: st.image(WordCloud(font_path=font_path, background_color="white", width=400).generate(" ".join(words_d)).to_array())
 
-        # 2) 차원별 비교 막대그래프 (색인 및 범례 영어 유지)
+        # 2) 차원별 비교 막대그래프
         st.subheader("4대 심리적 차원별 해석 수준(추상성) 비교")
         
         dim_map = {'T': 'Temporal', 'S': 'Social', 'L': 'Spatial', 'H': 'Hypothetical'}
@@ -143,7 +141,6 @@ elif st.session_state.user_type == "prof":
         df_chart['Distance'] = df_chart['module_type'].apply(lambda x: 'Close' if '_C' in x else 'Distant')
         avg_scores = df_chart.groupby(['Dimension', 'Distance'])['score_abstract'].mean().unstack()
         
-        # 순서 고정
         ordered_dims = ['Temporal', 'Social', 'Spatial', 'Hypothetical']
         existing_dims = [d for d in ordered_dims if d in avg_scores.index]
         avg_scores = avg_scores.reindex(existing_dims)
@@ -164,7 +161,6 @@ elif st.session_state.user_type == "prof":
         ax_bar.set_ylim(0, 3.5)
         ax_bar.legend(loc='upper left')
         
-        # 막대 위에 숫자 표시 (0.00 포함)
         for i in x:
             if 'Close' in avg_scores.columns:
                 val = avg_scores['Close'].iloc[i] if not np.isnan(avg_scores['Close'].iloc[i]) else 0
@@ -177,7 +173,26 @@ elif st.session_state.user_type == "prof":
         ax_bar.spines['right'].set_visible(False)
         st.pyplot(fig_bar)
 
-        # 3) 자기 우월평가 분석 및 상관관계
+        # 3) 순서 효과(Order Effect) 분석 (막대그래프 직후로 이동)
+        st.divider()
+        st.subheader("순서 효과(Order Effect) 통계 검증")
+        group_a = df[df['order_type'] == 'A']['score_abstract']
+        group_b = df[df['order_type'] == 'B']['score_abstract']
+        
+        if len(group_a) > 2 and len(group_b) > 2:
+            t_stat, p_val_order = stats.ttest_ind(group_a, group_b, equal_var=False)
+            st.write(f"- 그룹 A(근거리 우선) 전체 추상성 평균: **{group_a.mean():.2f}**")
+            st.write(f"- 그룹 B(원거리 우선) 전체 추상성 평균: **{group_b.mean():.2f}**")
+            st.write(f"- **t-통계량:** {t_stat:.4f}, **유의확률 (p-value):** {p_val_order:.4f}")
+            
+            if p_val_order > 0.05:
+                st.success("검증 결과: p-value가 0.05보다 크므로 제시 순서에 따른 유의미한 차이가 없습니다. (문항 순서 효과 통제 성공)")
+            else:
+                st.warning("검증 결과: p-value가 0.05 이하이므로 제시 순서에 따른 차이(순서 효과)가 존재할 가능성이 있습니다.")
+        else:
+            st.write("각 그룹(A, B)의 데이터가 충분히 수집되면 순서 효과 검증 결과가 표시됩니다.")
+
+        # 4) 자기 우월평가 분석 및 상관관계
         st.divider()
         st.subheader("자기 우월평가(Overplacement) 분석")
         avg_op = df[['overplacement_1', 'overplacement_2', 'overplacement_3']].mean().mean()
@@ -193,29 +208,13 @@ elif st.session_state.user_type == "prof":
             st.write(f"**통계 분석 결과:**")
             st.write(f"- 상관계수 (Pearson r): **{corr:.4f}**")
             st.write(f"- 유의확률 (p-value): **{p_val:.4f}**")
-            if p_val < 0.05:
-                st.success("분석 결과: 타인을 추상적으로 인식할수록 자신을 우월하게 평가하는 경향이 통계적으로 유의미하게 나타났습니다.")
-            else:
-                st.info("분석 결과: 상관관계는 존재하나 표본 수 부족으로 통계적 유의미성(p < 0.05)이 아직 확보되지 않았습니다.")
-
-        # 4) 순서 효과(Order Effect) 분석
-        st.divider()
-        st.subheader("순서 효과(Order Effect) 통계 검증")
-        group_a = df[df['order_type'] == 'A']['score_abstract']
-        group_b = df[df['order_type'] == 'B']['score_abstract']
-        
-        if len(group_a) > 2 and len(group_b) > 2:
-            t_stat, p_val_order = stats.ttest_ind(group_a, group_b, equal_var=False)
-            st.write(f"- 그룹 A(근거리 우선) 추상성 평균: **{group_a.mean():.2f}**")
-            st.write(f"- 그룹 B(원거리 우선) 추상성 평균: **{group_b.mean():.2f}**")
-            st.write(f"- **t-통계량:** {t_stat:.4f}, **유의확률 (p-value):** {p_val_order:.4f}")
             
-            if p_val_order > 0.05:
-                st.success("검증 결과: p-value가 0.05보다 크므로 제시 순서에 따른 유의미한 차이가 없습니다. 실험 설계가 안정적입니다.")
+            if p_val < 0.05:
+                st.success("분석 결과: 사회적 거리의 추상성 점수가 높을수록 자기 우월평가 점수도 높다는 가설이 통계적으로 유의미하게 나타났습니다.")
             else:
-                st.warning("검증 결과: p-value가 0.05 이하이므로 제시 순서에 따른 차이(순서 효과)가 존재할 가능성이 있습니다.")
-        else:
-            st.write("각 그룹(A, B)의 데이터가 충분히 수집되면 순서 효과 검증 결과가 표시됩니다.")
+                st.info("분석 결과: 사회적 거리의 추상성 점수가 높을수록 자기 우월평가 점수가 높게 나타나는 경향성이 있으나, 아직 통계적 유의성(p < 0.05)이 확보되지 않았습니다.")
+            
+            st.caption("※ 해설: 타인을 구체적인 개인이 아닌 '추상적인 평균'으로 인식(추상성 점수 증가)할수록, 자신을 타인보다 더 특별하고 우월하게 평가하는 편향(Overplacement)이 짙어짐을 의미합니다.")
 
 # 6. 학생 화면
 else:
@@ -227,8 +226,13 @@ else:
         if st.button("화면 새로고침"): st.rerun()
         
     elif state['current_state'] == "active":
-        st.progress(st.session_state.step / 9)
-        st.write(f"**현재 진행 단계: {st.session_state.step}/9**")
+        # 현재 단계 진행률 표시 (9단계 종료 후에는 숨김 처리)
+        if st.session_state.step < 9:
+            st.write(f"**현재 진행 단계: {st.session_state.step + 1}/9**")
+            st.progress((st.session_state.step + 1) / 9)
+            
+            # 상황 1 시작 전에 지속적으로 보여줄 안내 문구 추가
+            st.info("💡 **각 상황을 충분히 몰입해서 읽고, 당신의 머릿속에 가장 비중 있게 떠오르는 단어 3개를 선택하세요.**")
         
         dims = ["T", "S", "L", "H"]
         flat_steps = []
@@ -241,9 +245,10 @@ else:
             curr = flat_steps[st.session_state.step]
             dim_key, type_key = curr.split('_')
             st.subheader(f"상황 {st.session_state.step + 1}")
-            st.markdown(f"**{KEYWORDS[dim_key][f'{type_key}_scenario']}**\n\n👉 *아래 상황에 적절한 단어 3개를 고르세요.*")
             
-            # 학생별 세션 기반 단어 셔플
+            # 불필요한 안내 문구("아래 상황에 적절한...") 삭제
+            st.markdown(f"**{KEYWORDS[dim_key][f'{type_key}_scenario']}**")
+            
             if f"word_list_{st.session_state.step}" not in st.session_state:
                 all_list = KEYWORDS[dim_key]["abs"] + KEYWORDS[dim_key]["con"]
                 random.shuffle(all_list)
@@ -287,8 +292,12 @@ else:
                         "overplacement_2": op2, 
                         "overplacement_3": op3
                     }).execute()
-                st.success("성공적으로 제출되었습니다!")
-                st.session_state.step += 1
+                st.session_state.step += 1 # 9단계로 이동하여 화면 전환
+                st.rerun()
+                
+        # 9단계: 제출 완료 후 깨끗한 화면 안내
+        elif st.session_state.step == 9:
+            st.success("🎉 성공적으로 제출되었습니다! 강의실 화면에서 결과를 확인하세요.")
     
     else:
         st.success("모든 실험이 완료되었습니다. 교수님의 화면을 확인해주세요.")
