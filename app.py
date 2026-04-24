@@ -59,7 +59,7 @@ if not st.session_state.logged_in:
             st.session_state.update({"logged_in": True, "user_type": "prof"})
             st.rerun()
     else:
-        name = st.text_input("이름")
+        name = st.text_input("별명")
         if name and st.button("참여하기"):
             active_class_res = supabase.table("construal_state").select("class_name").eq("current_state", "active").execute()
             if active_class_res.data:
@@ -173,7 +173,7 @@ elif st.session_state.user_type == "prof":
         ax_bar.spines['right'].set_visible(False)
         st.pyplot(fig_bar)
 
-        # 3) 순서 효과(Order Effect) 분석 (막대그래프 직후로 이동)
+        # 3) 순서 효과(Order Effect) 분석
         st.divider()
         st.subheader("순서 효과(Order Effect) 통계 검증")
         group_a = df[df['order_type'] == 'A']['score_abstract']
@@ -198,6 +198,17 @@ elif st.session_state.user_type == "prof":
         avg_op = df[['overplacement_1', 'overplacement_2', 'overplacement_3']].mean().mean()
         st.metric("집단 평균 자기 능력 백분위", f"{avg_op:.1f}%", delta=f"{avg_op-50:.1f}% (50% 기준)")
         
+        # 개인별 자기 우월평가 결과 (별명, 상위 %)
+        st.subheader("개인별 자기 우월평가 결과")
+        df_op = df[['student_name', 'overplacement_1', 'overplacement_2', 'overplacement_3']].drop_duplicates()
+        df_op['op_avg'] = df_op[['overplacement_1', 'overplacement_2', 'overplacement_3']].mean(axis=1)
+        df_op['top_pct'] = df_op['op_avg'].rank(pct=True, ascending=False) * 100
+        
+        df_display = df_op[['student_name', 'op_avg', 'top_pct']].copy()
+        df_display.columns = ['별명', '평균 점수', '상위 %']
+        df_display = df_display.sort_values(by='상위 %', ascending=True).reset_index(drop=True)
+        st.dataframe(df_display.style.format({'평균 점수': '{:.1f}', '상위 %': '상위 {:.1f}%'}))
+        
         st.write("---")
         st.subheader("사회적 거리와 자기 우월평가의 상관관계")
         social_df = df[df['module_type'] == 'S_D'].copy()
@@ -215,6 +226,26 @@ elif st.session_state.user_type == "prof":
                 st.info("분석 결과: 사회적 거리의 추상성 점수가 높을수록 자기 우월평가 점수가 높게 나타나는 경향성이 있으나, 아직 통계적 유의성(p < 0.05)이 확보되지 않았습니다.")
             
             st.caption("※ 해설: 타인을 구체적인 개인이 아닌 '추상적인 평균'으로 인식(추상성 점수 증가)할수록, 자신을 타인보다 더 특별하고 우월하게 평가하는 편향(Overplacement)이 짙어짐을 의미합니다.")
+        
+        # 개인별 상관관계 산점도
+        st.subheader("개인별 상관관계 산점도")
+        if not social_df.empty:
+            fig_scatter, ax_scatter = plt.subplots(figsize=(8, 5))
+            ax_scatter.scatter(social_df['score_abstract'], social_df['op_avg'], color='purple', alpha=0.6)
+            
+            for i, row in social_df.iterrows():
+                ax_scatter.text(row['score_abstract'], row['op_avg'] + 1.5, row['student_name'], fontsize=9, ha='center', va='bottom')
+                
+            ax_scatter.set_xlabel("Abstractness Score (S_D)")
+            ax_scatter.set_ylabel("Overplacement Average Score")
+            ax_scatter.set_xticks([0, 1, 2, 3])
+            
+            ax_scatter.spines['top'].set_visible(False)
+            ax_scatter.spines['right'].set_visible(False)
+            
+            st.pyplot(fig_scatter)
+        else:
+            st.write("데이터가 충분히 수집되면 산점도가 표시됩니다.")
 
 # 6. 학생 화면
 else:
@@ -226,13 +257,13 @@ else:
         if st.button("화면 새로고침"): st.rerun()
         
     elif state['current_state'] == "active":
-        # 현재 단계 진행률 표시 (9단계 종료 후에는 숨김 처리)
         if st.session_state.step < 9:
             st.write(f"**현재 진행 단계: {st.session_state.step + 1}/9**")
             st.progress((st.session_state.step + 1) / 9)
             
-            # 상황 1 시작 전에 지속적으로 보여줄 안내 문구 추가
-            st.info("💡 **각 상황을 충분히 몰입해서 읽고, 당신의 머릿속에 가장 비중 있게 떠오르는 단어 3개를 선택하세요.**")
+            # 8단계(마지막 설문) 이전까지만 안내 문구 노출
+            if st.session_state.step < 8:
+                st.info("💡 **각 상황을 충분히 몰입해서 읽고, 당신의 머릿속에 가장 비중 있게 떠오르는 단어 3개를 선택하세요.**")
         
         dims = ["T", "S", "L", "H"]
         flat_steps = []
@@ -246,7 +277,6 @@ else:
             dim_key, type_key = curr.split('_')
             st.subheader(f"상황 {st.session_state.step + 1}")
             
-            # 불필요한 안내 문구("아래 상황에 적절한...") 삭제
             st.markdown(f"**{KEYWORDS[dim_key][f'{type_key}_scenario']}**")
             
             if f"word_list_{st.session_state.step}" not in st.session_state:
@@ -278,7 +308,7 @@ else:
             op2 = st.slider("2. 투자 시장 흐름 판단 능력", 0, 100, 50)
             op3 = st.slider("3. 가치 있는 정보 선별 능력", 0, 100, 50)
             
-            if st.button("제출 완료"):
+            if st.button("제출하기"):
                 for r in st.session_state.results:
                     supabase.table("construal_result").insert({
                         "class_name": st.session_state.class_name, 
@@ -292,10 +322,9 @@ else:
                         "overplacement_2": op2, 
                         "overplacement_3": op3
                     }).execute()
-                st.session_state.step += 1 # 9단계로 이동하여 화면 전환
+                st.session_state.step += 1 
                 st.rerun()
                 
-        # 9단계: 제출 완료 후 깨끗한 화면 안내
         elif st.session_state.step == 9:
             st.success("🎉 성공적으로 제출되었습니다! 강의실 화면에서 결과를 확인하세요.")
     
