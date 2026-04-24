@@ -83,28 +83,35 @@ if not st.session_state.logged_in:
                 supabase.table("student_logs").insert({"class_name": active_class, "student_name": name}).execute()
                 st.rerun()
             else:
-                st.warning("현재 열려 있는 수업이 없습니다. 교수님이 수업을 열 때까지 기다려 주세요.")
+                st.warning("현재 진행 중인 수업이 없습니다. 교수님의 시작 신호를 기다려 주세요.")
 
 # 5. 교수 화면 (Admin Panel)
 elif st.session_state.user_type == "prof":
     st.sidebar.title("관리자 패널")
     target_cls = st.sidebar.selectbox("수업 선택", ["인하대 행동재무학", "숙대 1", "숙대 2"])
     
-    # 5개의 버튼으로 분할하여 대기 버튼 추가
     c1, c2, c3, c4, c5 = st.columns(5)
+    
+    # 수정: 선택한 수업을 열 때, 나머지 수업은 자동으로 닫아버림 (학생 엉뚱한 접속 방지)
     if c1.button("실험 대기"): 
-        supabase.table("construal_state").update({"current_state": "standby"}).eq("class_name", target_cls).execute()
+        for c in ["인하대 행동재무학", "숙대 1", "숙대 2"]:
+            state_val = "standby" if c == target_cls else "result"
+            supabase.table("construal_state").update({"current_state": state_val}).eq("class_name", c).execute()
     if c2.button("실험 시작"): 
-        supabase.table("construal_state").update({"current_state": "active"}).eq("class_name", target_cls).execute()
+        for c in ["인하대 행동재무학", "숙대 1", "숙대 2"]:
+            state_val = "active" if c == target_cls else "result"
+            supabase.table("construal_state").update({"current_state": state_val}).eq("class_name", c).execute()
     if c3.button("결과 확인"): 
         supabase.table("construal_state").update({"current_state": "result"}).eq("class_name", target_cls).execute()
     if c4.button("데이터 새로고침"): 
         st.rerun()
     if c5.button("데이터 초기화"):
-        # 해당 수업(target_cls)의 데이터만 정확히 삭제
+        # 해당 수업 데이터만 정확히 삭제하고, 나머지 수업은 접근 차단(result) 처리
         supabase.table("construal_result").delete().eq("class_name", target_cls).execute()
         supabase.table("student_logs").delete().eq("class_name", target_cls).execute()
-        supabase.table("construal_state").update({"current_state": "standby"}).eq("class_name", target_cls).execute()
+        for c in ["인하대 행동재무학", "숙대 1", "숙대 2"]:
+            state_val = "standby" if c == target_cls else "result"
+            supabase.table("construal_state").update({"current_state": state_val}).eq("class_name", c).execute()
         st.success(f"해당 수업('{target_cls}')의 데이터만 초기화되었습니다.")
         st.rerun()
 
